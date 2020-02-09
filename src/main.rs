@@ -1,6 +1,6 @@
 use molt::types::*;
 use molt::{check_args, molt_err, molt_ok, Interp, ResultCode};
-use molt_shell::repl;
+// use molt_shell::repl;
 use std::collections::HashMap;
 use std::env;
 use thiserror::Error;
@@ -11,11 +11,32 @@ fn main() {
     let h: HashMap<String, Project> = HashMap::new();
     let id = interp.save_context(h);
     interp.add_context_command("proj", proj, id);
+    interp.add_context_command("open", open, id);
     molt_shell::script(&mut interp, &args[1..]);
+    molt_shell::repl(&mut interp, "% ");
+}
+
+pub fn open(interp: &mut Interp, ctx_id: ContextID, argv: &[Value]) -> MoltResult {
+    use std::process::{Command, Stdio};
+    check_args(1, argv, 2, 2, "project_name")?;
+    let projects = interp.context::<HashMap<String, Project>>(ctx_id);
+    let found: &Project = projects.get(&argv[1].as_str().to_owned()).unwrap();
+    let mut c = Command::new("kitty");
+    c.arg("@");
+    c.arg("new-window");
+    c.arg("--new-tab");
+    c.arg("--tab-title");
+    c.arg(&found.name);
+    c.arg("--keep-focus");
+    c.arg("--cwd");
+    c.arg(&found.path);
+    let mut _out = c.output().expect("could not execute kitty command");
+    
+    molt_ok!()
 }
 
 pub fn proj(interp: &mut Interp, ctx_id: ContextID, argv: &[Value]) -> MoltResult {
-    check_args(1, argv, 2, 2, "proj definition")?;
+    check_args(1, argv, 2, 2, "definition")?;
 
     // parse internals
     let p = Project::parse(argv[1].as_str()).or_else(|e| molt_err!(e.to_string()))?;
@@ -26,6 +47,7 @@ pub fn proj(interp: &mut Interp, ctx_id: ContextID, argv: &[Value]) -> MoltResul
     molt_ok!()
 }
 
+#[derive(Debug)]
 struct Project {
     pub name: String,
     pub git: String,
@@ -72,6 +94,12 @@ impl Project {
         })
     }
 }
+
+#[derive(Error, Debug)]
+pub enum AppError {
+
+}
+
 
 #[derive(Error, Debug)]
 pub enum ParseError {
