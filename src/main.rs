@@ -1,23 +1,36 @@
 use molt::types::*;
 use molt::{check_args, molt_err, molt_ok, Interp, ResultCode};
-// use molt_shell::repl;
 use std::collections::HashMap;
 use std::env;
 use thiserror::Error;
+use std::path::PathBuf;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let config_path = match env::var("KAT_CONFIG") {
+        Ok(ref path) => {
+            let p = PathBuf::from(&path);
+            if !p.exists() {
+                println!("KAT_CONFIG path {:?} does not exist", path);
+                std::process::exit(1);
+            }
+            p
+        },
+        Err(_) => {
+            let home = env::var("HOME").expect("HOME env var is not set");
+            PathBuf::from(home).join(".config/kat/kat.tcl")
+        },
+    };
     let mut interp = Interp::new();
     let h: HashMap<String, Project> = HashMap::new();
     let id = interp.save_context(h);
     interp.add_context_command("proj", proj, id);
     interp.add_context_command("open", open, id);
-    molt_shell::script(&mut interp, &args[1..]);
+    molt_shell::script(&mut interp, &[config_path.to_str().unwrap().to_owned()]);
     molt_shell::repl(&mut interp, "% ");
 }
 
 pub fn open(interp: &mut Interp, ctx_id: ContextID, argv: &[Value]) -> MoltResult {
-    use std::process::{Command, Stdio};
+    use std::process::{Command};
     check_args(1, argv, 2, 2, "project_name")?;
     let projects = interp.context::<HashMap<String, Project>>(ctx_id);
     let found: &Project = projects.get(&argv[1].as_str().to_owned()).unwrap();
@@ -66,7 +79,7 @@ impl Project {
         
         for line in raw.lines() {
             let trimmed = line.trim();
-            if trimmed == "" {
+            if trimmed == "" || trimmed.starts_with("#"){
                 continue;
             }
             let mut splitted = trimmed.split_whitespace();
