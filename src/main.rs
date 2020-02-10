@@ -23,10 +23,22 @@ fn main() {
     let mut interp = Interp::new();
     let h: HashMap<String, Project> = HashMap::new();
     let id = interp.save_context(h);
+    interp.add_context_command("ls", ls, id);
     interp.add_context_command("proj", proj, id);
     interp.add_context_command("open", open, id);
     molt_shell::script(&mut interp, &[config_path.to_str().unwrap().to_owned()]);
     molt_shell::repl(&mut interp, "% ");
+}
+
+pub fn ls(interp: &mut Interp, ctx_id: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 1, 1, "")?;
+    let projects = interp.context::<HashMap<String, Project>>(ctx_id);
+
+    for k in projects.keys() {
+        println!("{:?}", k);
+    }
+
+    molt_ok!()
 }
 
 pub fn open(interp: &mut Interp, ctx_id: ContextID, argv: &[Value]) -> MoltResult {
