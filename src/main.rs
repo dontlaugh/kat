@@ -1,9 +1,18 @@
 use molt::types::*;
 use molt::{check_args, molt_err, molt_ok, Interp, ResultCode};
+use molt_shell;
 use std::collections::HashMap;
 use std::env;
-use thiserror::Error;
 use std::path::PathBuf;
+use std::process::Command;
+use thiserror::Error;
+
+// TODO: check for the existence of projects
+// build projects, run tests
+// check for updated dependencies
+// check for new versions of toolchains
+// allow defining vars inside of commands
+// specify alternate proj proc syntax
 
 fn main() {
     let config_path = match env::var("KAT_CONFIG") {
@@ -14,11 +23,11 @@ fn main() {
                 std::process::exit(1);
             }
             p
-        },
+        }
         Err(_) => {
             let home = env::var("HOME").expect("HOME env var is not set");
             PathBuf::from(home).join(".config/kat/kat.tcl")
-        },
+        }
     };
     let mut interp = Interp::new();
     let h: HashMap<String, Project> = HashMap::new();
@@ -42,10 +51,12 @@ pub fn ls(interp: &mut Interp, ctx_id: ContextID, argv: &[Value]) -> MoltResult 
 }
 
 pub fn open(interp: &mut Interp, ctx_id: ContextID, argv: &[Value]) -> MoltResult {
-    use std::process::{Command};
     check_args(1, argv, 2, 2, "project_name")?;
     let projects = interp.context::<HashMap<String, Project>>(ctx_id);
     let found: &Project = projects.get(&argv[1].as_str().to_owned()).unwrap();
+    if !std::path::PathBuf::from(&found.path).exists() {
+        return molt_err!("path does not exist. Maybe you need to clone?");
+    }
     let mut c = Command::new("kitty");
     c.arg("@");
     c.arg("new-window");
@@ -56,7 +67,7 @@ pub fn open(interp: &mut Interp, ctx_id: ContextID, argv: &[Value]) -> MoltResul
     c.arg("--cwd");
     c.arg(&found.path);
     let mut _out = c.output().expect("could not execute kitty command");
-    
+
     molt_ok!()
 }
 
@@ -73,6 +84,13 @@ pub fn proj(interp: &mut Interp, ctx_id: ContextID, argv: &[Value]) -> MoltResul
 }
 
 #[derive(Debug)]
+enum ProjectType {
+    Rust,
+    RustWorkspace,
+    Custom(String),
+}
+
+#[derive(Debug)]
 struct Project {
     pub name: String,
     pub git: String,
@@ -80,18 +98,30 @@ struct Project {
 }
 
 impl Project {
-    pub fn parse(raw: &str) -> Result<Self, ParseError> {
+    pub fn git_clone(&self) -> Result<(), std::io::Error> {
+        let parent_dir = PathBuf::from(&self.path);
+        let parent_dir = parent_dir.parent().unwrap();
 
+        let mut c = Command::new("git");
+        c.current_dir(&parent_dir);
+
+        c.arg("clone");
+        c.arg(&self.git);
+        let _ = c.output()?;
+        Ok(())
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, ParseError> {
         let mut data = HashMap::<&str, Vec<&str>>::new();
 
         let mut valid_attrs: HashMap<&str, usize> = HashMap::new();
         valid_attrs.insert("name", 0);
         valid_attrs.insert("git", 0);
         valid_attrs.insert("path", 0);
-        
+
         for line in raw.lines() {
             let trimmed = line.trim();
-            if trimmed == "" || trimmed.starts_with("#"){
+            if trimmed == "" || trimmed.starts_with("#") {
                 continue;
             }
             let mut splitted = trimmed.split_whitespace();
@@ -109,9 +139,15 @@ impl Project {
                 data.insert(attr, values);
             }
         }
-        let name = data.get("name").ok_or(ParseError::Expected("name".to_owned()))?;
-        let git = data.get("git").ok_or(ParseError::Expected("git".to_owned()))?;
-        let path = data.get("path").ok_or(ParseError::Expected("path".to_owned()))?;
+        let name = data
+            .get("name")
+            .ok_or(ParseError::Expected("name".to_owned()))?;
+        let git = data
+            .get("git")
+            .ok_or(ParseError::Expected("git".to_owned()))?;
+        let path = data
+            .get("path")
+            .ok_or(ParseError::Expected("path".to_owned()))?;
         Ok(Project {
             name: name[0].to_owned(),
             git: git[0].to_owned(),
@@ -121,10 +157,7 @@ impl Project {
 }
 
 #[derive(Error, Debug)]
-pub enum AppError {
-
-}
-
+pub enum AppError {}
 
 #[derive(Error, Debug)]
 pub enum ParseError {
